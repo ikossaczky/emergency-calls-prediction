@@ -102,13 +102,16 @@ class DataPipeline:
 
     def __init__(self,
                  target_column: str,
+                 columns_to_drop: list[str],
                  processors: Union[list[BaseProcessor], BaseProcessor, None]):
 
         """
         :param target_column: which data columns should be used as target
+        :param columns_to_drop: which other columns should be dropped from the training data
         :param postprocessor: optional function which can further process the model input
         """
         self.target_column = target_column
+        self.columns_to_drop = columns_to_drop
         self.processors = processors
 
         if self.processors is None:
@@ -117,9 +120,13 @@ class DataPipeline:
         if not isinstance(self.processors, Iterable):
             self.processors = [processors]
 
+        # target column should be dropped from the input data in any case
+        if not self.target_column in self.columns_to_drop:
+            self.columns_to_drop.append(self.target_column)
+
     def _input_target_split(self, data: pd.DataFrame) -> tuple[pd.DataFrame, np.ndarray]:
         y = data[self.target_column].values
-        x = data.drop(self.target_column, axis=1)
+        x = data.drop(self.columns_to_drop, axis=1)
         return x, y
 
     def fit(self, data: pd.DataFrame):
@@ -150,23 +157,32 @@ if __name__ == "__main__":
 
     data = get_data()
 
-    train_df, val_df, test_df = split_data(data, test_years=[2021, 2022],train_years=list(range(2016, 2021)),
+    train_df, val_df, test_df = split_data(data, test_years=[2021, 2022],train_years=list(range(2017, 2021)),
                                            val_ratio=0.1)
 
     # data_pipeline = DataPipeline(target_column="count", processors=OneHotEncoder(INTERVAL_DICT))
-    data_pipeline = DataPipeline(target_column="count", processors=BaseProcessor())
+    data_pipeline = DataPipeline(target_column="count", columns_to_drop=["year"], processors=BaseProcessor())
 
     data_pipeline.fit(train_df)
 
     (x, y), (xv, yv), (xt, yt) = [data_pipeline(df) for df in [train_df, val_df, test_df]]
 
     from sklearn.ensemble import AdaBoostRegressor, RandomForestRegressor, GradientBoostingRegressor, StackingRegressor
-    models = [AdaBoostRegressor(), RandomForestRegressor(max_depth=5), GradientBoostingRegressor()]
+    from sklearn.tree import DecisionTreeRegressor
+    from sklearn.pipeline import Pipeline
+    models = [AdaBoostRegressor(), RandomForestRegressor(max_depth=5), GradientBoostingRegressor(), DecisionTreeRegressor()]
     # for model in models:
     #     print(model.fit(x,y).score(xv, yv))
 
-    model = StackingRegressor(estimators=[(m.__class__.__name__, m) for m in models])
-    print(model.fit(x,y).score(xv,yv))
+    df = pd.DataFrame(x)
+    df["y"] = y
+
+    model = models[0]
+    pip = Pipeline([("data_pipeline", data_pipeline), ("model", model)])
+    pip.fit(x,y)
+
+    # model = StackingRegressor(estimators=[(m.__class__.__name__, m) for m in models])
+    # print(model.fit(x,y).score(xv,yv))
 
 
     # print(merged.max(axis=0))
