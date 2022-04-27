@@ -7,10 +7,10 @@ OUTPUT_PATH="./data/dataset.csv"
 SEDSTR='s_.*([0-9]{2}/[0-9]{2}/[0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} (A|P)M)(.*)_\1_'
 
 # format of out time features
-FEATURE_FORMAT=',%Y,%m,%d,%H,%u,%V,%q'
+FEATURE_FORMAT=',%Y,%m,%d,%H,%u,%V,%q,%j'
 
 # setup output file with header
-echo "count,year,month,day,hour,weekday,week,quarter" > "$OUTPUT_PATH"
+echo "count,year,month,day,hour,weekday,week,quarter,yearday" > "$OUTPUT_PATH"
 
 # load data except the header line, extract date with sed, create features with date,
 # accumulate (groupby count equivalent) with uniq -c, remove leading zeros with sed and space chars with tr
