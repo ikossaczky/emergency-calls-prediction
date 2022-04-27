@@ -51,7 +51,6 @@ def get_data(path: str = DATA_PATH, dtype: type = np.int16) -> pd.DataFrame:
     return merged
 
 
-# TODO: test if data is splited correctly (corect years in trian and val and test set), matching of shapes
 def split_data(data: pd.DataFrame,
                train_years: list[int],
                test_years: list[int],
@@ -265,3 +264,5 @@ if __name__ == "__main__":
     # print scores of lookup estimator for comparison
     print(format_str.format("validation score lookup estimator", lookup_estimator.score(xv, yv)))
     print(format_str.format("test score lookup estimator", lookup_estimator.score(xt, yt)))
+
+    metrics.mean_poisson_deviance(yv, lookup_estimator.predict(xv))
