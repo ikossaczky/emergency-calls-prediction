@@ -1,3 +1,4 @@
+import datetime
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin, RegressorMixin
@@ -172,7 +173,7 @@ class PeriodicEncoder(BaseEncoder):
 
     def transform(self, df: pd.DataFrame, y=None) -> np.ndarray:
         # check if columns from interval_dict can be found in the dataframe
-        assert set(self.columns).issubset(set(df.columns)), \
+        assert set(self.columns).issuperset(set(df.columns)), \
             "columns missing in dataframe: {}".format(list(set(self.columns) - set(df.columns)))
 
         # normalize features so to be from [0,1]
@@ -239,30 +240,51 @@ if __name__ == "__main__":
                                             test_years=[2021, 2022],
                                             val_ratio=0.1,
                                             target_column="count",
-                                            columns_to_drop=["year"])
+                                            columns_to_drop=[])
 
     # initialize the model
     model = GradientBoostingRegressor()
 
     # initialize the data encoder
-    preprocessor = PeriodicEncoder(interval_dict=INTERVAL_DICT)
+    columnsubset = ColumnSubset(columns=["year"], drop=True)
+
+    # initialize the data encoder
+    encoder = PeriodicEncoder(interval_dict=INTERVAL_DICT)
 
     # build pipeline encoder + model
-    pipeline = Pipeline([("preprocessing", preprocessor), ("model", model)])
+    estimator = Pipeline([
+        ("select_columns", columnsubset),
+        ("encoder", encoder),
+        ("model", model)])
 
     # fit the pipeline
-    pipeline.fit(x, y)
+    estimator.fit(x, y)
 
     # print scores
     format_str = "{:>40}: {:4.2f}"
-    print(format_str.format("validation score model", pipeline.score(xv, yv)))
-    print(format_str.format("test score model", pipeline.score(xt, yt)))
+    print(format_str.format("model validation score", estimator.score(xv, yv)))
+    print(format_str.format("model test score", estimator.score(xt, yt)))
 
     # fit lookup estimator
     lookup_estimator.fit(x, y)
 
     # print scores of lookup estimator for comparison
-    print(format_str.format("validation score lookup estimator", lookup_estimator.score(xv, yv)))
-    print(format_str.format("test score lookup estimator", lookup_estimator.score(xt, yt)))
+    print(format_str.format("mean-lookup validation score ", lookup_estimator.score(xv, yv)))
+    print(format_str.format("mean-lookup test score ", lookup_estimator.score(xt, yt)))
 
     metrics.mean_poisson_deviance(yv, lookup_estimator.predict(xv))
+
+    def results_table(y_true, y_pred, data):
+        date = data.apply(lambda x: datetime.datetime(x['year'], x['month'], x['day'], x['hour']), axis=1)
+        return pd.DataFrame([v for v in zip(date, y_true, y_pred)],
+                            columns=["date", "target", "prediction"], dtype=object).sort_values("date", axis=0)
+
+    resdf = results_table(yt, estimator.predict(xt), xt)
+
+    import matplotlib
+    matplotlib.use('TkAgg')
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots()
+    fig.set_size_inches(15,4)
+    ax.plot(resdf["date"], resdf[["target", "prediction"]])
