@@ -1,4 +1,6 @@
 import tensorflow as tf
+import numpy as np
+import pandas as pd
 
 # Callback for early stopping if validation loss does not improve anymore
 stopping_callback = tf.keras.callbacks.EarlyStopping(
@@ -25,8 +27,10 @@ def build_model():
 
 
 if __name__ == "__main__":
-    from sklearn import metrics
-    from data_pipeline import get_data, split_data, OneHotEncoder, PeriodicEncoder, INTERVAL_DICT
+    from data_pipeline import get_data, split_data, INTERVAL_DICT
+    from encoders import PeriodicEncoder, OneHotEncoder, ColumnSubset
+    from eval_tools import plot_target_prediction, results_table, print_scores, lookup_estimator
+
 
     # get the data
     data = get_data()
@@ -35,22 +39,43 @@ if __name__ == "__main__":
     (x, y), (xv, yv), (xt, yt) = split_data(data,
                                             train_years=list(range(2016, 2021)),
                                             test_years=[2021, 2022],
-                                            val_ratio=0.1,
+                                            val_ratio=0.05,
                                             target_column="count",
-                                            columns_to_drop=["year"])
+                                            columns_to_drop=[])
 
-    # we cannot use sklearn pipeline in this case: it does not support e.g. epoch as argument
+    # save original data for lookup estimator for comparison
+    x_orig, xv_orig, xt_orig = x, xv, xt
+
+    # I don't want to use sklearn pipeline for keras model as it has quite bad support, and a lot of hacks are needed:
+    colsubset = ColumnSubset(columns=["year"], drop=True)
+    x, xv, xt = [colsubset.fit_transform(data) for data in [x, xv, xt]]
+
     encoder = PeriodicEncoder(interval_dict=INTERVAL_DICT)
     x, xv, xt = [encoder.fit_transform(data) for data in [x, xv, xt]]
 
     # build the model
-    net = build_model()
+    estimator = build_model()
 
     # fit the network
-    net.fit(x, y, epochs=100, validation_data=(xv, yv), callbacks=stopping_callback)
+    estimator.fit(x, y, epochs=100, validation_data=(xv, yv), callbacks=stopping_callback)
 
+    # print scores
+    yv_pred = estimator.predict(xv)
+    yt_pred = estimator.predict(xt)
+    print_scores(yv, yv_pred, yt, yt_pred, "neural network")
+
+    # fit lookup estimator for comparison
+    lookup_estimator.fit(pd.concat([x_orig, xv_orig], axis=0), np.concatenate([y, yv], axis=0))
 
     # print scores of lookup estimator for comparison
-    format_str = "{:>40}: {:4.2f}"
-    print(format_str.format("validation score lookup estimator", metrics.r2_score(yv, net.predict(xv))))
-    print(format_str.format("test score lookup estimator", metrics.r2_score(yt, net.predict(xt))))
+    yt_pred = lookup_estimator.predict(xt_orig)
+    print_scores(None, None, yt, yt_pred, "lookup_estimator")  # lookup estimator sees validation set
+
+    # save results to csv
+    resdf = results_table(yt, estimator.predict(xt), xt_orig)
+    resdf.to_csv("./data/results_neural_network.csv")
+
+    # plot predictions and target
+    plot_target_prediction(yt, estimator.predict(xt), xt_orig)
+
+
